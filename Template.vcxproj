@@ -175,6 +175,7 @@
     <ClInclude Include="Renderer.h" />
     <ClInclude Include="Sprites.h" />
     <ClInclude Include="UI.h" />
+    <ClInclude Include="WaveSystem.h" />
   </ItemGroup>
   <ItemGroup>
     <Media Include="theme.mp3" />

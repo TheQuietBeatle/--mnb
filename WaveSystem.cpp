@@ -50,7 +50,7 @@ std::vector<Enemy> enemies;
 // Wave configuration.
 const int MAX_ACTIVE_ENEMIES = 10;
 const int TOTAL_WAVES = 3;
-const int WAVE_ENEMY_COUNTS[TOTAL_WAVES] = { 3, 5, 10 };
+const int WAVE_ENEMY_COUNTS[TOTAL_WAVES] = {3, 5, 10};
 const double SPAWN_INTERVAL = 2.0;
 const float ENEMY_SPEED = 0.12f; // OpenGL units per second, moving toward the base.
 
@@ -71,9 +71,9 @@ void addEnemy(EnemyType type, int laneIndex, float x) {
         return;
     }
 
-    enemies.push_back({ type, laneIndex, x, true });
+    enemies.push_back({type, laneIndex, x, true});
     std::cout << "Enemy added. Active enemies: "
-        << getActiveEnemyCount() << std::endl;
+              << getActiveEnemyCount() << std::endl;
 }
 
 // Choose one of the four lanes at random for each new enemy.
@@ -85,7 +85,7 @@ int randomLane() {
 void spawnEnemy(EnemyType type) {
     if (getActiveEnemyCount() >= MAX_ACTIVE_ENEMIES) {
         std::cout << "Spawn skipped: active-enemy limit reached ("
-            << MAX_ACTIVE_ENEMIES << ")." << std::endl;
+                  << MAX_ACTIVE_ENEMIES << ")." << std::endl;
         return;
     }
 
@@ -93,11 +93,11 @@ void spawnEnemy(EnemyType type) {
     addEnemy(type, lane, RIGHT_X);
 
     std::cout << "Spawned "
-        << (type == EnemyType::Easy ? "Easy" :
-            type == EnemyType::Medium ? "Medium" : "Hard")
-        << " enemy in lane " << lane
-        << ". Active enemies: " << getActiveEnemyCount()
-        << std::endl;
+              << (type == EnemyType::Easy ? "Easy" :
+                  type == EnemyType::Medium ? "Medium" : "Hard")
+              << " enemy in lane " << lane
+              << ". Active enemies: " << getActiveEnemyCount()
+              << std::endl;
 }
 
 // Pick types in a predictable sequence so every wave guarantees its required mix.
@@ -114,9 +114,9 @@ EnemyType getWaveEnemyType(int wave, int enemyIndex) {
     // Wave 3 cycles through all three types, guaranteeing a mix of Easy,
     // Medium, and Hard enemies across the ten enemies.
     switch (enemyIndex % 3) {
-    case 0: return EnemyType::Easy;
-    case 1: return EnemyType::Medium;
-    default: return EnemyType::Hard;
+        case 0: return EnemyType::Easy;
+        case 1: return EnemyType::Medium;
+        default: return EnemyType::Hard;
     }
 }
 
@@ -137,7 +137,7 @@ void updateEnemies(float deltaTime) {
             gameOver = true;
             playerWon = false;
             std::cout << "GAME OVER: an enemy reached the home base in lane "
-                << enemy.laneIndex << "." << std::endl;
+                      << enemy.laneIndex << "." << std::endl;
             return;
         }
     }
@@ -163,8 +163,8 @@ void updateWaveSystem(double currentTime) {
         lastSpawnTime = currentTime;
 
         std::cout << "Wave " << currentWave << ": spawned "
-            << spawnedInCurrentWave << "/" << requiredEnemies
-            << " enemies." << std::endl;
+                  << spawnedInCurrentWave << "/" << requiredEnemies
+                  << " enemies." << std::endl;
     }
 
     if (spawnedInCurrentWave == requiredEnemies && areAllEnemiesDefeated()) {
@@ -172,14 +172,13 @@ void updateWaveSystem(double currentTime) {
             playerWon = true;
             gameOver = true;
             std::cout << "VICTORY! All three waves have been completed."
-                << std::endl;
-        }
-        else {
+                      << std::endl;
+        } else {
             ++currentWave;
             spawnedInCurrentWave = 0;
             lastSpawnTime = currentTime;
             std::cout << "Wave cleared! Starting Wave " << currentWave
-                << ". Defeat all enemies to advance." << std::endl;
+                      << ". Defeat all enemies to advance." << std::endl;
         }
     }
 }
@@ -215,26 +214,26 @@ bool areAllEnemiesDefeated() {
 // Return the vertical center of a lane.
 float getLaneCenterY(int laneIndex) {
     switch (laneIndex) {
-    case 0: return 0.525f;
-    case 1: return 0.175f;
-    case 2: return -0.175f;
-    case 3: return -0.525f;
-    default: return 0.0f;
+        case 0: return 0.525f;
+        case 1: return 0.175f;
+        case 2: return -0.175f;
+        case 3: return -0.525f;
+        default: return 0.0f;
     }
 }
 
 // Give each enemy type a distinct display color.
 void setEnemyColor(int colorLocation, EnemyType type) {
     switch (type) {
-    case EnemyType::Easy:
-        glUniform3f(colorLocation, 0.1f, 0.2f, 0.9f); // Blue
-        break;
-    case EnemyType::Medium:
-        glUniform3f(colorLocation, 0.95f, 0.55f, 0.05f); // Orange
-        break;
-    case EnemyType::Hard:
-        glUniform3f(colorLocation, 0.75f, 0.0f, 0.75f); // Purple
-        break;
+        case EnemyType::Easy:
+            glUniform3f(colorLocation, 0.1f, 0.2f, 0.9f); // Blue
+            break;
+        case EnemyType::Medium:
+            glUniform3f(colorLocation, 0.95f, 0.55f, 0.05f); // Orange
+            break;
+        case EnemyType::Hard:
+            glUniform3f(colorLocation, 0.75f, 0.0f, 0.75f); // Purple
+            break;
     }
 }
 
@@ -337,7 +336,7 @@ unsigned int gridVBO = 0;
 
 unsigned int enemyVAO = 0;
 unsigned int enemyVBO = 0;
-float enemyVertex[] = { 0.0f, 0.0f, 0.0f };
+float enemyVertex[] = {0.0f, 0.0f, 0.0f};
 
 // Compile a shader and report errors
 unsigned int compileShader(unsigned int type, const char* source) {
@@ -355,7 +354,7 @@ unsigned int compileShader(unsigned int type, const char* source) {
         glGetShaderInfoLog(shader, 512, nullptr, infoLog);
 
         std::cerr << "Shader compilation failed:\n"
-            << infoLog << std::endl;
+                  << infoLog << std::endl;
 
         glDeleteShader(shader);
         return 0;
@@ -398,7 +397,7 @@ bool createShaderProgram() {
         );
 
         std::cerr << "Shader linking failed:\n"
-            << infoLog << std::endl;
+                  << infoLog << std::endl;
 
         glDeleteProgram(shaderProgram);
         shaderProgram = 0;
@@ -412,7 +411,7 @@ bool createShaderProgram() {
 
 // Configure a VAO/VBO pair
 void setupGeometry(unsigned int& VAO, unsigned int& VBO,
-    float* vertices, size_t size) {
+                   float* vertices, size_t size) {
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
 
@@ -438,13 +437,13 @@ void setupGeometry(unsigned int& VAO, unsigned int& VBO,
 
 // Update viewport when the window is resized
 void framebuffer_size_callback(GLFWwindow* window,
-    int width, int height) {
+                               int width, int height) {
     glViewport(0, 0, width, height);
 }
 
 // Mouse callback: select a lane with the first valid click
 void mouse_button_callback(GLFWwindow* window, int button,
-    int action, int mods) {
+                           int action, int mods) {
     if (button != GLFW_MOUSE_BUTTON_LEFT ||
         action != GLFW_PRESS ||
         selectedLane != -1) {
@@ -493,7 +492,7 @@ void mouse_button_callback(GLFWwindow* window, int button,
 
     if (selectedLane != -1) {
         std::cout << "Selected lane: "
-            << selectedLane << std::endl;
+                  << selectedLane << std::endl;
     }
 }
 
@@ -513,9 +512,9 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 
     removeDefeatedEnemies();
     std::cout << "Active enemies: " << getActiveEnemyCount()
-        << " | Field clear: "
-        << (areAllEnemiesDefeated() ? "Yes" : "No")
-        << std::endl;
+              << " | Field clear: "
+              << (areAllEnemiesDefeated() ? "Yes" : "No")
+              << std::endl;
 }
 
 int main() {
@@ -619,20 +618,20 @@ int main() {
 
     if (colorLocation == -1) {
         std::cerr << "Could not find laneColor uniform"
-            << std::endl;
+                  << std::endl;
     }
 
     std::cout << "Wave system started: Wave 1 has 3 Easy enemies; "
-        << "Wave 2 has 5 Easy/Medium enemies; Wave 3 has 10 "
-        << "Easy/Medium/Hard enemies. Press X to defeat one enemy "
-        << "(temporary test)." << std::endl;
+              << "Wave 2 has 5 Easy/Medium enemies; Wave 3 has 10 "
+              << "Easy/Medium/Hard enemies. Press X to defeat one enemy "
+              << "(temporary test)." << std::endl;
 
     // Main render loop
     while (!glfwWindowShouldClose(window)) {
         const double currentTime = glfwGetTime();
         const float deltaTime = static_cast<float>(
             currentTime - previousFrameTime
-            );
+        );
         previousFrameTime = currentTime;
 
         if (!gameOver) {
@@ -654,8 +653,7 @@ int main() {
                 glUniform3f(
                     colorLocation, 0.0f, 0.35f, 0.0f
                 );
-            }
-            else {
+            } else {
                 // Normal lane: light green
                 glUniform3f(
                     colorLocation, 0.3f, 0.8f, 0.3f

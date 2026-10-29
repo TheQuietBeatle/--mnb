@@ -67,6 +67,9 @@
     <ClInclude Include="Game.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="WaveSystem.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
     <ClInclude Include="Audio.h">
       <Filter>Source Files</Filter>
     </ClInclude>

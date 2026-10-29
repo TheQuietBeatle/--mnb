@@ -19,11 +19,13 @@ struct Unit {
     float jumpY = 0.0f, jumpVel = 0.0f;
     float duckTimer = 0.0f;
     bool  fighting = false;   // touching an opponent -> stops moving
+    bool  reachedBase = false; // enemy only: walked into the home base (no coin drop)
 };
 
 struct Projectile {
     int   lane = 0;
     float x = 0.0f;
+    float prevX = 0.0f;       // x last frame, for swept-segment hit test
     float yOff = 0.0f;        // height above the lane bottom
     float vx = 0.0f;
     bool  fromEnemy = false;
@@ -37,6 +39,14 @@ struct Collectible {
     float x = 0.0f;
     float age = 0.0f;
     bool  alive = true;
+};
+
+// Floating "+100" text shown when a player reaches the end of its lane
+struct RewardPopup {
+    int   lane = 0;
+    float x = 0.0f;
+    int   amount = 0;
+    float age = 0.0f;
 };
 
 enum class GameState { Playing, Paused, Won, Lost };
@@ -57,11 +67,9 @@ public:
     GameState state() const { return st; }
 
 private:
-    void buildWaveQueue();
     void spawnEnemy(int def, int lane);
     void placePlayer(int def, int lane);
 
-    void updateWaves(float dt);
     void updatePlayers(float dt);
     void updateEnemies(float dt);
     void updateProjectiles(float dt);
@@ -77,6 +85,7 @@ private:
     std::vector<Unit>        enemies;
     std::vector<Projectile>  projectiles;
     std::vector<Collectible> collectibles;
+    std::vector<RewardPopup> popups;
 
     int  coins = 0;
     int  armedCard = -1;      // card picked, waiting for a lane click
@@ -84,13 +93,17 @@ private:
     int  hoveredLane = -1;
     bool selectedLanes[cfg::NUM_LANES] = {};
 
-    int   waveIndex = 0;
-    int   spawnedInWave = 0;
-    float spawnTimer = 0.0f;
-    std::vector<int> waveQueue;   // enemy types left to spawn this wave
+    int   baseHp = 0;
+
+    int   musicVolPct = 60;   // 0-100 in steps of 10 (must match Audio's default 0.6)
+    bool  musicMuted = false;
 
     float     clock = 0.0f;
     GameState st = GameState::Playing;
     std::mt19937 rng;
     CardBar   cards;
+
+    void applyVolume();
+    void changeVolume(int deltaPct);
+    void toggleMute();
 };

@@ -1,38 +1,59 @@
 #include "Game.h"
+#include "WaveSystem.h"
+#include "Audio.h"
 #include <GLFW/glfw3.h>   // key / mouse button codes
 
 #include <algorithm>
 #include <cmath>
+#include <ctime>
 #include <string>
 
 using namespace cfg;
 
+// Reset the WaveSystem globals so the game can be restarted.
+void resetWaves()
+{
+    ::enemies.clear();
+    currentWave = 1;
+    spawnedInCurrentWave = 0;
+    lastSpawnTime = glfwGetTime();
+    gameOver = playerWon = false;
+}
+
 namespace {
 
-struct WaveDef {
-    int   count;     // number of enemies in the wave
-    int   maxType;   // strongest enemy type allowed (CH_EASY .. CH_HARD)
-    float minGap, maxGap;   // seconds between spawns
-};
+    constexpr float PLAYER_BOLT_SPEED = 420.0f;
+    constexpr float ENEMY_BOLT_SPEED = 260.0f;
+    constexpr float COIN_HOVER = 0.5f;   // seconds a dropped coin stays put
+    constexpr float COIN_FLY = 0.5f;   // seconds to fly to the counter
+    constexpr float POPUP_TIME = 1.0f; // seconds a "+coins" reward popup stays on screen
 
-const WaveDef kWaves[] = {
-    {  3, CH_EASY,   4.0f, 6.0f },   // wave 1: easy only
-    {  5, CH_MEDIUM, 3.0f, 5.0f },   // wave 2: easy + medium
-    { 10, CH_HARD,   2.0f, 4.0f },   // wave 3: easy + medium + hard
-};
-constexpr int NUM_WAVES = (int)(sizeof(kWaves) / sizeof(kWaves[0]));
+    // Pause-menu buttons (world px, y up). Drawing and click-testing use the same rects.
+    struct Button {
+        float x, y, w, h;
+        bool hit(float px, float py) const { return px >= x && px <= x + w && py >= y && py <= y + h; }
+    };
+    const Button BTN_VOL_DOWN{ 470.0f, 248.0f,  60.0f, 40.0f };
+    const Button BTN_VOL_UP{ 750.0f, 248.0f,  60.0f, 40.0f };
+    const Button BTN_MUTE{ 530.0f, 190.0f, 220.0f, 40.0f };
 
-constexpr float PLAYER_BOLT_SPEED = 420.0f;
-constexpr float ENEMY_BOLT_SPEED  = 260.0f;
-constexpr float WAVE_BREAK = 4.0f;
-constexpr float COIN_HOVER = 0.5f;   // seconds a dropped coin stays put
-constexpr float COIN_FLY = 0.5f;   // seconds to fly to the counter 
+    void drawButton(Renderer& r, const Button& b, const std::string& label)
+    {
+        r.drawRect(b.x, b.y, b.w, b.h, { 0.20f, 0.30f, 0.42f });
+        r.drawRect(b.x + 3, b.y + 3, b.w - 6, b.h - 6, { 0.08f, 0.12f, 0.20f });
+        float tx = b.x + (b.w - r.textWidth(label, 4.0f)) * 0.5f;
+        float ty = b.y + (b.h - 7.0f * 4.0f) * 0.5f;
+        r.drawText(label, tx, ty, 4.0f, { 0.85f, 0.92f, 1.00f });
+    }
 
-bool touching(const Unit& a, const Unit& b)
-{
-    return a.lane == b.lane &&
-           std::fabs(a.x - b.x) < unitHalfWidth(a.def) + unitHalfWidth(b.def);
-}
+    // a = player, b = enemy.  signed gap prevents units from tunnelling through each other.
+    bool touching(const Unit& a, const Unit& b)
+    {
+        if (a.lane != b.lane) return false;
+        float gap = b.x - a.x;   // positive when enemy is to the right (normal case)
+        float contact = unitHalfWidth(a.def) + unitHalfWidth(b.def);
+        return gap <= contact && gap > -contact;
+    }
 
 } // namespace
 
@@ -41,6 +62,7 @@ bool touching(const Unit& a, const Unit& b)
 // ---------------------------------------------------------------------------
 Game::Game() : rng(std::random_device{}())
 {
+    srand(static_cast<unsigned int>(time(nullptr)));
     reset();
 }
 
@@ -50,31 +72,17 @@ void Game::reset()
     enemies.clear();
     projectiles.clear();
     collectibles.clear();
+    popups.clear();
 
     coins = START_COINS;
     armedCard = hoveredCard = hoveredLane = -1;
     for (bool& s : selectedLanes) s = false;
 
-    waveIndex = 0;
-    spawnedInWave = 0;
-    spawnTimer = 2.0f;
-    buildWaveQueue();
+    baseHp = BASE_MAX_HP;
+    resetWaves();
 
     clock = 0.0f;
     st = GameState::Playing;
-}
-
-void Game::buildWaveQueue()
-{
-    waveQueue.clear();
-    if (waveIndex >= NUM_WAVES) return;
-
-    // cycle through the allowed types so every type appears, then shuffle
-    const WaveDef& w = kWaves[waveIndex];
-    int numTypes = w.maxType - CH_EASY + 1;
-    for (int i = 0; i < w.count; ++i)
-        waveQueue.push_back(CH_EASY + i % numTypes);
-    std::shuffle(waveQueue.begin(), waveQueue.end(), rng);
 }
 
 void Game::spawnEnemy(int def, int lane)
@@ -127,38 +135,28 @@ void Game::update(float dt)
     // a card can re-lock when coins drop below its cost
     if (armedCard >= 0 && !isUnlocked(armedCard)) armedCard = -1;
 
-    updateWaves(dt);
+    // Wave system drives enemy spawning (assign lane randomly with our rng)
+    {
+        std::uniform_int_distribution<int> laneDist(0, NUM_LANES - 1);
+        size_t prevCount = ::enemies.size();
+        updateWaveSystem(glfwGetTime());
+        for (size_t i = prevCount; i < ::enemies.size(); ++i) {
+            const auto& we = ::enemies[i];
+            int def = (we.type == EnemyType::Easy) ? CH_EASY :
+                (we.type == EnemyType::Medium) ? CH_MEDIUM : CH_HARD;
+            spawnEnemy(def, laneDist(rng));
+        }
+    }
+
     updatePlayers(dt);
     updateEnemies(dt);
-    if (st != GameState::Playing) return;   // an enemy reached the base
     updateProjectiles(dt);
     cleanup();
 
-    if (waveIndex >= NUM_WAVES && enemies.empty()) st = GameState::Won;
+    if (baseHp <= 0) { st = GameState::Lost; return; }
+    if (::playerWon)      st = GameState::Won;
 }
 
-void Game::updateWaves(float dt)
-{
-    if (waveIndex >= NUM_WAVES) return;
-
-    if (spawnedInWave < (int)waveQueue.size()) {
-        spawnTimer -= dt;
-        if (spawnTimer <= 0.0f) {
-            std::uniform_int_distribution<int> laneDist(0, NUM_LANES - 1);
-            spawnEnemy(waveQueue[spawnedInWave++], laneDist(rng));
-
-            std::uniform_real_distribution<float> gap(kWaves[waveIndex].minGap, kWaves[waveIndex].maxGap);
-            spawnTimer = gap(rng);
-        }
-    }
-    else if (enemies.empty()) {
-        // wave fully spawned and cleared -> next wave
-        ++waveIndex;
-        spawnedInWave = 0;
-        spawnTimer = WAVE_BREAK;
-        buildWaveQueue();
-    }
-}
 
 Unit* Game::blockingEnemy(const Unit& p)
 {
@@ -192,12 +190,36 @@ void Game::updatePlayers(float dt)
             if (p.duckTimer > 0.0f) p.duckTimer -= dt;
         }
 
-        // movement: stop while touching an enemy
+        // movement: stop while touching an enemy; clamp to prevent crossing
         Unit* target = blockingEnemy(p);
         p.fighting = (target != nullptr);
         if (d.speed > 0.0f && !p.fighting) {
             p.x += d.speed * dt;
             p.x = std::min(p.x, GRID_RIGHT - unitHalfWidth(p.def));
+        }
+        // hard clamp: never let a player overlap an enemy regardless of frame rate
+        for (Unit& e : enemies) {
+            if (e.lane == p.lane && e.hp > 0) {
+                float contact = unitHalfWidth(p.def) + unitHalfWidth(e.def);
+                if (e.x - p.x < contact) p.x = e.x - contact;
+            }
+        }
+
+        // reached the end of the lane: refund 2x the card price and leave the field
+        // (defense players never move, so they never get here)
+        if (d.role != Role::Defense && d.speed > 0.0f &&
+            p.x >= GRID_RIGHT - unitHalfWidth(p.def) - 0.01f) {
+            int reward = 2 * d.cost;
+            coins += reward;
+
+            RewardPopup pop;
+            pop.lane = p.lane;
+            pop.x = p.x;
+            pop.amount = reward;
+            popups.push_back(pop);
+
+            p.hp = 0;   // removed in cleanup(); players never drop collectibles
+            continue;
         }
 
         // attacking starts as soon as the player is placed
@@ -240,6 +262,8 @@ void Game::updatePlayers(float dt)
             coins += COIN_DROP;
         }
     }
+
+    for (RewardPopup& pop : popups) pop.age += dt;
 }
 
 
@@ -255,8 +279,17 @@ void Game::updateEnemies(float dt)
         if (!e.fighting) {
             e.x -= d.speed * dt;
             if (e.x - unitHalfWidth(e.def) <= GRID_LEFT) {   // reached the home base
-                st = GameState::Lost;
-                return;
+                --baseHp;
+                e.hp = 0;              // mark for removal; cleanup() will do the rest
+                e.reachedBase = true;  // ...but it was not defeated, so no coin drop
+                continue;
+            }
+        }
+        // hard clamp: never let an enemy cross a player
+        for (Unit& p : players) {
+            if (p.lane == e.lane && p.hp > 0) {
+                float contact = unitHalfWidth(e.def) + unitHalfWidth(p.def);
+                if (e.x - p.x < contact) e.x = p.x + contact;
             }
         }
 
@@ -287,35 +320,43 @@ void Game::updateProjectiles(float dt)
 {
     for (Projectile& pr : projectiles) {
         if (!pr.alive) continue;
+        pr.prevX = pr.x;
         pr.x += pr.vx * dt;
+
+        // swept-segment helpers: min/max x the bolt passed through this frame
+        float segMin = std::min(pr.prevX, pr.x);
+        float segMax = std::max(pr.prevX, pr.x);
 
         if (!pr.fromEnemy) {
             for (Unit& e : enemies) {
-                if (e.lane == pr.lane && e.hp > 0 && std::fabs(pr.x - e.x) < unitHalfWidth(e.def)) {
+                if (e.lane != pr.lane || e.hp <= 0) continue;
+                float bMin = e.x - unitHalfWidth(e.def);
+                float bMax = e.x + unitHalfWidth(e.def);
+                if (segMax >= bMin && segMin <= bMax) {
                     e.hp -= pr.damage;
                     pr.alive = false;
                     break;
                 }
             }
-            if (pr.x > WORLD_W) pr.alive = false;
+            if (pr.x > WORLD_W + 60.0f) pr.alive = false;
             continue;
         }
 
-        // enemy projectile: a defense player soaks it first, which is what
-        // protects every player standing behind it
+        // enemy projectile: defense player soaks it first
         Unit* hit = nullptr;
         for (Unit& p : players) {
-            if (p.lane == pr.lane && p.hp > 0 && g_chars[p.def].role == Role::Defense &&
-                std::fabs(pr.x - p.x) < unitHalfWidth(p.def)) {
-                hit = &p; break;
-            }
+            if (p.lane != pr.lane || p.hp <= 0 || g_chars[p.def].role != Role::Defense) continue;
+            float bMin = p.x - unitHalfWidth(p.def);
+            float bMax = p.x + unitHalfWidth(p.def);
+            if (segMax >= bMin && segMin <= bMax) { hit = &p; break; }
         }
         if (!hit) {
             for (Unit& p : players) {
                 if (p.lane != pr.lane || p.hp <= 0) continue;
-                if (std::fabs(pr.x - p.x) >= unitHalfWidth(p.def)) continue;
-                bool dodged = pr.high ? (p.duckTimer > 0.0f)   // duck under high attacks
-                    : (p.jumpY > 12.0f);     // jump over low attacks
+                float bMin = p.x - unitHalfWidth(p.def);
+                float bMax = p.x + unitHalfWidth(p.def);
+                if (segMax < bMin || segMin > bMax) continue;
+                bool dodged = pr.high ? (p.duckTimer > 0.0f) : (p.jumpY > 12.0f);
                 if (dodged) continue;
                 hit = &p;
                 break;
@@ -325,20 +366,37 @@ void Game::updateProjectiles(float dt)
             hit->hp -= pr.damage;
             pr.alive = false;
         }
-        if (pr.x < GRID_LEFT - 10.0f) pr.alive = false;
+        if (pr.x < -60.0f) pr.alive = false;
     }
 }
 
 void Game::cleanup()
 {
     // defeated enemies drop a collectible where they fell
+    // (enemies that walked into the base are removed without a drop)
     for (const Unit& e : enemies)
-        if (e.hp <= 0) {
+        if (e.hp <= 0 && !e.reachedBase) {
             Collectible c;
             c.lane = e.lane;
             c.x = e.x;
             collectibles.push_back(c);
         }
+
+    // Notify wave system of each defeated enemy (match by type only — lanes differ)
+    for (const Unit& e : enemies) {
+        if (e.hp <= 0) {
+            EnemyType et = (e.def == CH_EASY) ? EnemyType::Easy :
+                (e.def == CH_MEDIUM) ? EnemyType::Medium :
+                EnemyType::Hard;
+            for (auto& we : ::enemies) {
+                if (we.active && we.type == et) {
+                    we.active = false;
+                    break;
+                }
+            }
+        }
+    }
+    removeDefeatedEnemies();
 
     auto dead = [](const Unit& u) { return u.hp <= 0; };
     enemies.erase(std::remove_if(enemies.begin(), enemies.end(), dead), enemies.end());
@@ -347,6 +405,8 @@ void Game::cleanup()
         [](const Projectile& p) { return !p.alive; }), projectiles.end());
     collectibles.erase(std::remove_if(collectibles.begin(), collectibles.end(),
         [](const Collectible& c) { return !c.alive; }), collectibles.end());
+    popups.erase(std::remove_if(popups.begin(), popups.end(),
+        [](const RewardPopup& p) { return p.age >= POPUP_TIME; }), popups.end());
 }
 
 
@@ -363,6 +423,13 @@ void Game::onMouseMove(float wx, float wy)
 
 void Game::onMouseButton(int button, float wx, float wy)
 {
+    // Pause-menu volume buttons (LMB only)
+    if (st == GameState::Paused && button == GLFW_MOUSE_BUTTON_LEFT) {
+        if (BTN_VOL_DOWN.hit(wx, wy)) { changeVolume(-10); return; }
+        if (BTN_VOL_UP.hit(wx, wy)) { changeVolume(+10); return; }
+        if (BTN_MUTE.hit(wx, wy)) { toggleMute();      return; }
+    }
+
     if (st != GameState::Playing) return;
 
     if (button == GLFW_MOUSE_BUTTON_RIGHT) {   // cancel the picked card
@@ -397,6 +464,13 @@ void Game::onKey(int key)
     }
     if (key == GLFW_KEY_R && st != GameState::Playing) {
         reset();
+        return;
+    }
+    // Pause-menu audio controls
+    if (st == GameState::Paused) {
+        if (key == GLFW_KEY_LEFT)  changeVolume(-10);
+        else if (key == GLFW_KEY_RIGHT) changeVolume(+10);
+        else if (key == GLFW_KEY_M)     toggleMute();
         return;
     }
     if (st != GameState::Playing) return;
@@ -445,26 +519,6 @@ void Game::drawUnit(Renderer& r, const Unit& u, bool enemy, float alpha) const
         drawHealthBar(r, u.x, y + f.h * sy + 6.0f, 56.0f, u.hp, d.maxHp, enemy);
 }
 
-// health bar centred on cx, bottom edge at y (world is y-up)
-static void drawHealthBar(Renderer& r, float cx, float y, int hp, int maxHp)
-{
-    const float W = 50.0f, H = 7.0f, B = 1.5f;
-    float frac = maxHp > 0 ? std::clamp((float)hp / maxHp, 0.0f, 1.0f) : 0.0f;
-    float left = cx - W / 2.0f;
-
-    r.drawRect(left - B, y - B, W + 2 * B, H + 2 * B, { 0.05f, 0.05f, 0.05f });  // outline
-    r.drawRect(left, y, W, H, { 0.30f, 0.05f, 0.05f });                         // empty part
-
-    // green -> yellow -> red as health drops
-    float red = frac > 0.5f ? (1.0f - frac) * 2.0f : 1.0f;
-    float green = frac > 0.5f ? 1.0f : frac * 2.0f;
-    r.drawRect(left, y, W * frac, H, { red, green, 0.10f });
-
-    // a tick between each life so you can count them
-    for (int i = 1; i < maxHp; ++i)
-        r.drawRect(left + W * i / maxHp - 0.5f, y, 1.0f, H, { 0.0f, 0.0f, 0.0f });
-}
-
 void Game::render(Renderer& r) const
 {
     drawBattlefield(r, st == GameState::Playing ? hoveredLane : -1, selectedLanes, clock);
@@ -490,15 +544,16 @@ void Game::render(Renderer& r) const
         r.drawSprite(g_sprites[SPR_COIN], x, y, fcs, fcs, false);
     }
 
-    const float BAR_Y = 95.0f;   // height above the lane floor, tune this
+    for (const Unit& p : players) drawUnit(r, p, false);
+    for (const Unit& e : enemies) drawUnit(r, e, true);
 
-    for (const Unit& p : players) {
-        drawUnit(r, p, false);
-        drawHealthBar(r, p.x, laneBottom(p.lane) + GROUND_PAD + BAR_Y, p.hp, g_chars[p.def].maxHp);
-    }
-    for (const Unit& e : enemies) {
-        drawUnit(r, e, true);
-        drawHealthBar(r, e.x, laneBottom(e.lane) + GROUND_PAD + BAR_Y, e.hp, g_chars[e.def].maxHp);
+    // "+100" popups at the lane end: rise and fade out
+    for (const RewardPopup& pop : popups) {
+        float t = std::clamp(pop.age / POPUP_TIME, 0.0f, 1.0f);
+        std::string txt = "+" + std::to_string(pop.amount);
+        float tx = std::min(pop.x, GRID_RIGHT - r.textWidth(txt, 3.0f)) - r.textWidth(txt, 3.0f) * 0.5f;
+        float ty = laneBottom(pop.lane) + LANE_H * 0.55f + t * 30.0f;
+        r.drawText(txt, tx, ty, 3.0f, { 1.00f, 0.85f, 0.25f }, 1.0f - t);
     }
 
     for (const Projectile& p : projectiles) {
@@ -522,11 +577,18 @@ void Game::render(Renderer& r) const
         }
     }
 
+    // Base HP bar (centred on the home-base column)
+    {
+        float baseMidY = (GRID_TOP + laneBottom(NUM_LANES - 1)) * 0.5f;
+        drawHealthBar(r, 70.0f, baseMidY + 20.0f, 110.0f, baseHp, BASE_MAX_HP, false);
+        r.drawText("BASE", 70.0f - r.textWidth("BASE", 2.5f) * 0.5f, baseMidY + 36.0f, 2.5f, { 0.80f, 0.85f, 0.90f });
+    }
+
     // HUD
     drawCoinPanel(r, coins);
     cards.draw(r, coins, armedCard, hoveredCard);
 
-    std::string wave = "WAVE " + std::to_string(std::min(waveIndex + 1, NUM_WAVES)) + "/" + std::to_string(NUM_WAVES);
+    std::string wave = "WAVE " + std::to_string(currentWave) + "/" + std::to_string(WAVE_TOTAL);
     r.drawText(wave, WORLD_W - r.textWidth(wave, 4.0f) - 30.0f, 660.0f, 4.0f, { 0.90f, 0.95f, 1.00f });
     r.drawText("CLICK CARD THEN LANE.  CLICK LANE TO SELECT.", 490, 650, 2.0f, { 0.60f, 0.70f, 0.80f });
     r.drawText("W JUMP  S DUCK  ESC PAUSE  RIGHT CLICK CANCEL", 490, 630, 2.0f, { 0.60f, 0.70f, 0.80f });
@@ -537,6 +599,13 @@ void Game::render(Renderer& r) const
         if (st == GameState::Paused) {
             drawCenteredText(r, "PAUSED", 400, 10.0f, { 1, 1, 1 });
             drawCenteredText(r, "ESC RESUME   R RESTART", 320, 4.0f, { 0.8f, 0.85f, 0.9f });
+            // Volume control: [-]  MUSIC 60%  [+]   then a MUTE / UNMUTE button
+            drawButton(r, BTN_VOL_DOWN, "-");
+            drawButton(r, BTN_VOL_UP, "+");
+            std::string vol = musicMuted ? "MUSIC OFF" : "MUSIC " + std::to_string(musicVolPct) + "%";
+            drawCenteredText(r, vol, 254, 4.0f, { 0.75f, 0.85f, 0.95f });
+            drawButton(r, BTN_MUTE, musicMuted ? "UNMUTE" : "MUTE");
+            drawCenteredText(r, "LEFT/RIGHT VOLUME   M MUTE", 160, 2.0f, { 0.55f, 0.65f, 0.75f });
         }
         else if (st == GameState::Won) {
             drawCenteredText(r, "VICTORY!", 400, 10.0f, { 0.4f, 1.0f, 0.5f });
@@ -547,4 +616,22 @@ void Game::render(Renderer& r) const
             drawCenteredText(r, "R RESTART", 320, 4.0f, { 0.8f, 0.85f, 0.9f });
         }
     }
+}
+
+void Game::applyVolume()
+{
+    Audio::setMusicVolume(musicMuted ? 0.0f : musicVolPct * 0.01f);
+}
+
+void Game::changeVolume(int deltaPct)
+{
+    musicVolPct = std::clamp(musicVolPct + deltaPct, 0, 100);
+    musicMuted = false;          // touching the volume always unmutes
+    applyVolume();
+}
+
+void Game::toggleMute()
+{
+    musicMuted = !musicMuted;    // musicVolPct is kept, so unmuting restores it
+    applyVolume();
 }

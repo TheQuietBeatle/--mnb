@@ -7,6 +7,7 @@ namespace cfg {
 	constexpr float WORLD_H = 720.0f;
 
 	constexpr int   NUM_LANES = 5;
+	constexpr int   BASE_MAX_HP = 5;
 	constexpr float LANE_H = 110.0f;
 	constexpr float GRID_TOP = 600.0f;   // top edge of lane 0
 	constexpr float GRID_LEFT = 140.0f;   // home base ends here

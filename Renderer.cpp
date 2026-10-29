@@ -109,6 +109,12 @@ void main()
         { '!',{ "  #  ","  #  ","  #  ","  #  ","  #  ","     ","  #  " } },
         { '-',{ "     ","     ","     ","#####","     ","     ","     " } },
         { '.',{ "     ","     ","     ","     ","     "," ##  "," ##  " } },
+        { '+',{ "     ","  #  ","  #  ","#####","  #  ","  #  ","     " } },
+        { '%',{ "##   ","##  #","   # ","  #  "," #   ","#  ##","   ##" } },
+        { '(',{ "   # ","  #  "," #   "," #   "," #   ","  #  ","   # " } },
+        { ')',{ " #   ","  #  ","   # ","   # ","   # ","  #  "," #   " } },
+        { '[',{ " ### "," #   "," #   "," #   "," #   "," #   "," ### " } },
+        { ']',{ " ### ","   # ","   # ","   # ","   # ","   # "," ### " } },
     };
 
     const Glyph* findGlyph(char c)
@@ -191,10 +197,10 @@ SpriteFrame Renderer::addSprite(const char* const* rows, int numRows, const Pale
             float y = (float)(numRows - 1 - row);
             // two triangles forming a unit square
             verts.insert(verts.end(), { x, y, c.r, c.g, c.b });
-            verts.insert(verts.end(), { x+1.0f, y, c.r, c.g, c.b });
-            verts.insert(verts.end(), { x+1.0f, y+1.0f, c.r, c.g, c.b });
-            verts.insert(verts.end(), { x+1.0f, y+1.0f, c.r, c.g, c.b });
-            verts.insert(verts.end(), { x, y+1.0f, c.r, c.g, c.b });
+            verts.insert(verts.end(), { x + 1.0f, y, c.r, c.g, c.b });
+            verts.insert(verts.end(), { x + 1.0f, y + 1.0f, c.r, c.g, c.b });
+            verts.insert(verts.end(), { x + 1.0f, y + 1.0f, c.r, c.g, c.b });
+            verts.insert(verts.end(), { x, y + 1.0f, c.r, c.g, c.b });
             verts.insert(verts.end(), { x, y, c.r, c.g, c.b });
         }
     }
@@ -230,7 +236,7 @@ void Renderer::beginFrame(int fbWidth, int fbHeight)
     int vw = (int)(cfg::WORLD_W * scale);
     int vh = (int)(cfg::WORLD_H * scale);
     glViewport((fbWidth - vw) / 2, (fbHeight - vh) / 2, vw, vh);
-    
+
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
